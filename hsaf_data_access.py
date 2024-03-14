@@ -30,7 +30,7 @@ class HSAFDataAccess:
         
     def extract_gz_file(directory):
         """ 
-            This method looks for the zipped files in the specified directory, extracts all is contents in and delete the zipped file.
+            This method looks for the zipped files in the specified directory, extracts all its contents and delete the zipped file.
         
             Parameters
                 directory: is the path in which to look for the zipped files
@@ -124,7 +124,7 @@ class HSAFDataAccess:
         
         return
 
-    def create_polygon(xq, yq, xv, yv):
+    def in_polygon(xq, yq, xv, yv):
         shape = xq.shape
         xq = xq.reshape(-1)
         yq = yq.reshape(-1)
@@ -248,4 +248,20 @@ class HSAFDataAccess:
                         print('there is no data for ' + '%s/%s/%s' % (datelist[ii].day, datelist[ii].month, datelist[ii].year))
             print('Done!!!')
 
+            
+            
+    def get_lat_lon(self, username, psw):
+        ftp = FTP('ftphsaf.meteoam.it', user=username, passwd=psw)
+        ftp.cwd('utilities/matlab_code')
+        filename = 'lat_lon_0.nc.gz'
+        local_filename = 'latlon.nc.gz'                
+        with open(local_filename, 'wb') as loc_file:
+            if filename in ftp.nlst():
+                ftp.retrbinary('RETR ' + filename, loc_file.write)
+                print(filename + ' downloaded')
+            else:
+                print('there is no positional data available')
+        self.extract_gz_file('./')
+        print('Done!!!')        
+        return
 
