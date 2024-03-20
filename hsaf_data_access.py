@@ -1,24 +1,18 @@
 # -*- coding: utf-8 -*-
-"""
 
-This is a class containing methods for accessing the H-SAF data products on the ftp server.
-
-"""
 
 import os
 import gzip
 import shutil
-from datetime import timedelta
-
 
 import numpy as np
 import netCDF4 as nc
 import geopandas as gpd
 import xarray as xr
 import pandas as pd
-import cartopy as cart
 from ftplib import FTP
-from matplotlib import path
+from matplotlib.path import Path
+import cartopy.feature as cfeature
 
 
 class HSAFDataAccess:
@@ -27,241 +21,600 @@ class HSAFDataAccess:
 
     def __init__(self):
         pass
-        
-    def extract_gz_file(directory):
+
+    @staticmethod        
+    def extract_gz_files(directory):
         """ 
-            This method looks for the zipped files in the specified directory, extracts all its contents and delete the zipped file.
-        
-            Parameters
-                directory: is the path in which to look for the zipped files
+        Extracts all gzipped files in the specified directory and deletes the original gzipped files.
+
+        Parameters:
+            directory (str): The path of the directory containing the gzipped files.
+
+        Returns:
+            bool: True if extraction was successful, False otherwise.
         """
-        
-        
         if not os.path.isdir(directory):
-            print('Specified path is not a directory')
-        else:
-            os.chdir(directory)
+            raise ValueError("Specified path is not a directory")
+
+        try:
+            extracted = False
             extension = ".gz"
 
-            for item in os.listdir(directory):  # loop through items in dir
-                if item.endswith(extension):  # check for ".gz" extension
-                    gz_name = os.path.abspath(item)  # get full path of files
-                    file_name = (os.path.basename(gz_name)).rsplit('.', 1)[0]  # get file name for file within
-                    with gzip.open(gz_name, "rb") as f_in:
-                        with open(file_name, "wb") as f_out:
-                            shutil.copyfileobj(f_in, f_out)
-                    os.remove(gz_name)  # delete zipped file
-                else:
-                    print('No zipped file found in the specified directory')
-        return
+            for item in os.listdir(directory):
+                if item.endswith(extension):
+                    gz_name = os.path.join(directory, item)
+                    file_name = os.path.splitext(gz_name)[0]
+                    try:
+                        with gzip.open(gz_name, "rb") as f_in:
+                            with open(file_name, "wb") as f_out:
+                                shutil.copyfileobj(f_in, f_out)
+                        os.remove(gz_name)
+                        extracted = True
+                    except (gzip.BadGzipFile, IOError, OSError) as e:
+                        print(f"Error extracting {gz_name}: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Error while extracting gzipped files: {e}")
+
+        return extracted
     
+
+    @staticmethod
     def add_border(ax):
         """
-            This method adds ocean and land boundaries to the plot containing the ‘ax’ object
+        Add ocean and land boundaries to the given axes object.
+
+        Parameters:
+            ax (matplotlib.axes.Axes): The axes object to which boundaries are to be added.
+
+        Returns:
+            matplotlib.axes.Axes: The modified axes object.
+        """
+        
+        # Define boundary types and their corresponding face colors
+        boundaries = {'ocean': 'water', 'land': 'land'}
+
+        try:
+            for boundary_type, face_color in boundaries.items():
+                feature = cfeature.NaturalEarthFeature(category='physical', name=boundary_type, scale='10m',
+                                                        edgecolor='none', facecolor=cfeature.COLORS[face_color], zorder=-1)
+                ax.add_feature(feature)
+
+            # Add coastlines
+            ax.coastlines(resolution='10m', zorder=-1)
+
+            return ax
+
+        except Exception as e:
+            print(f"An error occurred while adding boundaries: {e}")
+            return None
+
+    
+    @staticmethod
+    def create_netCDF_from_data(param_name, param_unit, outname, rr, lat1, lon1, datestart, dateend):
+        """
+        Create a NetCDF file from provided data.
+
+        Parameters:
+            param_name (str): The name for the main variable being studied.
+            param_unit (str): The unit of the main variable.
+            outname (str): The name for the NetCDF4 file to be created.
+            rr (numpy.ndarray): The main variable data array.
+            lat1 (float): The latitude coordinate.
+            lon1 (float): The longitude coordinate.
+            datestart (datetime.datetime): Start date of the time dimension.
+            dateend (datetime.datetime): End date of the time dimension.
+        """
+        
+        try:
+            sz = rr.shape
+            date_list = pd.date_range(datestart, dateend)
+
+            ncfile = nc.Dataset(outname, mode='w', format='NETCDF4', mmap=False)
+            ncfile.createDimension('time', len(date_list))  # time axis
+            ncfile.createDimension('x', sz[1])  # longitude axis
+
+            lat = ncfile.createVariable('lat', np.float32, ('x'), zlib=True)
+            lat.units = 'degrees_north'
+            lat.long_name = 'Latitude'
+            lat[:] = lat1
+
+            lon = ncfile.createVariable('lon', np.float32, ('x'), zlib=True)
+            lon.units = 'degrees_east'
+            lon.long_name = 'Longitude'
+            lon[:] = lon1
+
+            time = ncfile.createVariable('time', np.float64, ('time',), zlib=True)
+            time.units = 'days since 1970-01-01'
+            time.long_name = 'Time'
+            time.calendar = 'standard'
+            time[:] = nc.date2num(date_list.to_pydatetime(), units=time.units, calendar=time.calendar)
+
+            main_param = ncfile.createVariable(param_name, np.float64, ('time', 'x'), zlib=True)
+            main_param.units = param_unit
+            main_param.standard_name = param_name 
+            main_param[:] = rr
+
+            ncfile.close()
+            return True
+        except Exception as e:
+            print(f'An error occurred: {str(e)}')
+            return False
+
+
+    @staticmethod
+    def points_in_polygon(query_x, query_y, vertex_x, vertex_y):
+        """
+        Determine whether points are inside a polygon.
+
+        Parameters:
+            query_x (numpy.ndarray): X coordinates of the query points.
+            query_y (numpy.ndarray): Y coordinates of the query points.
+            vertex_x (numpy.ndarray): X coordinates of the polygon vertices.
+            vertex_y (numpy.ndarray): Y coordinates of the polygon vertices.
+
+        Returns:
+            numpy.ndarray: Boolean array indicating whether each query point is inside the polygon.
+        """
+        # Ensure inputs are numpy arrays
+        query_x = np.array(query_x)
+        query_y = np.array(query_y)
+        vertex_x = np.array(vertex_x)
+        vertex_y = np.array(vertex_y)
+
+        shape = query_x.shape
+        query_x = query_x.reshape(-1)
+        query_y = query_y.reshape(-1)
+        vertex_x = vertex_x.reshape(-1)
+        vertex_y = vertex_y.reshape(-1)
+
+        # Convert vertices and query points to list of tuples
+        query_points = [(query_x[i], query_y[i]) for i in range(query_x.shape[0])]
+        polygon_vertices = [(vertex_x[i], vertex_y[i]) for i in range(vertex_x.shape[0])]
+
+        # Create a Path object representing the polygon
+        polygon_path = Path(polygon_vertices)
+
+        # Determine whether each query point is inside the polygon
+        points_inside_polygon = polygon_path.contains_points(query_points).reshape(shape)
+
+        return points_inside_polygon
+
+
+    @staticmethod
+    def points_in_shapefile(lon, lat, shapefile_path):
+        """
+        Checks if points are within the boundaries defined by a shapefile.
+
+        Args:
+        - lon (array-like): Array-like object containing longitudes of the points.
+        - lat (array-like): Array-like object containing latitudes of the points.
+        - shapefile_path (str): Path to the shapefile.
+
+        Returns:
+        - list: List containing boolean values indicating whether each point is inside the shapefile boundary.
+        """
+
+        try:
+            shapefile = gpd.read_file(shapefile_path)
+            points = gpd.GeoDataFrame(geometry=gpd.points_from_xy(lon, lat))
+            points_in_shapefile = gpd.sjoin(points, shapefile, how="inner", op="within")
+            points_indices_inside_shapefile = points_in_shapefile.index.tolist()
             
-            Parameters
-            ax: is the axes on which the boundary is to be shown
+            # Construct a boolean mask indicating whether each point is inside the shapefile
+            points_in_shapefile_mask = [True if i in points_indices_inside_shapefile else False for i in range(len(lon))]
+            
+            return points_in_shapefile_mask
         
-        """
-        axi = ax
-        param = ['ocean', 'land']
-        for i in param:
-            if i == 'ocean':
-                facecolor='water'
-            else:
-                facecolor=i
-            feature = cart.feature.NaturalEarthFeature(category='physical', name=i, scale='10m',
-                                        edgecolor='none', facecolor=cart.feature.COLORS[facecolor], zorder=-1)
-            axi.add_feature(feature)
-        
-        # coastlines
-        axi.coastlines(resolution='10m',zorder=-1)
-        return axi
-    
-    def to_netCDF(param_name, param_unit, outname, rr, lat1, lon1, datestart, dateend):
-    
-        """
-            Parameters
-                param_name: The name for the main variable being studied
-                
-                param_unit: The unit of the main variable
-                
-                outname:  is the name for the netCDF4 file to be created
-        
-        """
-        
-        sz = rr.shape
-        date_list = []
-        while datestart <= dateend:
-            date_list.append(datestart)
-            datestart += timedelta(days=1)
-        
-        ncfile = nc.Dataset(outname, mode='w', format='NETCDF4', mmap=False)
-        ncfile.createDimension('time', sz[0])  # time axis
-        ncfile.createDimension('x', sz[1])  # longitude axis
-        
-        lat = ncfile.createVariable('lat', np.float32, ('x'), zlib=True)
-        lat.units = 'degrees north'
-        lat.long_name = 'Latitude'
-        lat[:] = lat1
-        
-        lon = ncfile.createVariable('lon', np.float32, ('x'), zlib=True)
-        lon.units = 'degrees east'
-        lon.long_name = 'Longitude'
-        lon[:] = lon1
-        
-        time = ncfile.createVariable('time', np.float64, ('time'), zlib=True)
-        time.units = 'days since 1970-01-01'
-        time.long_name = 'Date'
-        time.calendar = 'standard'    
-        time[:] = nc.date2num(date_list, units=time.units, calendar=time.calendar)
-       
-        main_param = ncfile.createVariable(param_name, np.float64, ('time', 'x'), zlib=True)
-        main_param.units = param_unit
-        main_param.standard_name = param_name 
-        main_param[:] = rr
-        ncfile.close()
-        
-        return
+        except Exception as e:
+            print(f'Error checking points in shapefile: {str(e)}')
 
-    def in_polygon(xq, yq, xv, yv):
-        shape = xq.shape
-        xq = xq.reshape(-1)
-        yq = yq.reshape(-1)
-        xv = xv.reshape(-1)
-        yv = yv.reshape(-1)
-        q = [(xq[i], yq[i]) for i in range(xq.shape[0])]
-        p = path.Path([(xv[i], yv[i]) for i in range(xv.shape[0])])
-        return p.contains_points(q).reshape(shape)
 
-    def cut_by_shp(shapefile_path, netcdf_path):
+    @staticmethod
+    def filter_data_by_bounding_box(lon, lat, P_h60, bounding_box):
         """
-           Cut the extent of a netCDF4 file to the region specified by the boundary of the given shapefile and export the result as a CSV file.
-           
+        Filter data points by a bounding box.
+    
+        This method filters data points based on whether they fall within the specified bounding box.
+        It uses the `points_in_polygon` method to determine which points are inside the bounding box.
+    
+        Parameters:
+            lon (array-like): Array-like object containing longitudes of the data points.
+            lat (array-like): Array-like object containing latitudes of the data points.
+            P_h60 (array-like): Array-like object containing the data values associated with each point.
+            bounding_box (tuple): A tuple containing the coordinates (x, y) defining the bounding box.
+    
+        Returns:
+            tuple: A tuple containing three arrays: filtered_lon, filtered_lat, and filtered_P_h60.
+                   These arrays contain the filtered data points that fall within the bounding box.
         """
-        
+        try:
+            x, y = bounding_box
+            lon_h60, lat_h60 = np.meshgrid(lat, lon, sparse=True)
+            lat_h60 = np.ravel(lat_h60)
+            lon_h60 = np.ravel(lon_h60)
+            P_h60 = np.ravel(P_h60)
+            IN = HSAFDataAccess.points_in_polygon(lon_h60, lat_h60, x, y)
+            filtered_lon = lon_h60[IN]
+            filtered_lat = lat_h60[IN]
+            filtered_P_h60 = P_h60[IN]
+            return filtered_lon, filtered_lat, filtered_P_h60
+        except Exception as e:
+            print(f'Error filtering data by bounding box: {str(e)}')
+                                            
+
+    @staticmethod
+    def filter_data_by_shapefile(lon, lat, P_h60, shapefile_path):
+        """
+        Filter data points by a shapefile boundary.
+    
+        This method filters data points based on whether they fall within the boundaries
+        defined by a shapefile. It uses the GeoPandas library to read the shapefile and
+        perform spatial join operations to determine which points are inside the shapefile.
+    
+        Parameters:
+            lon (array-like): Array-like object containing longitudes of the data points.
+            lat (array-like): Array-like object containing latitudes of the data points.
+            P_h60 (array-like): Array-like object containing the data values associated with each point.
+            shapefile_path (str): Path to the shapefile defining the boundary.
+    
+        Returns:
+            tuple: A tuple containing three arrays: filtered_lon, filtered_lat, and filtered_P_h60.
+                   These arrays contain the filtered data points that fall within the shapefile boundary.
+        """
+        try:
+            lon_h60, lat_h60 = np.meshgrid(lat, lon, sparse=True)
+            lat_h60 = np.ravel(lat_h60)
+            lon_h60 = np.ravel(lon_h60)
+            P_h60 = np.ravel(P_h60)
+            IN = HSAFDataAccess.points_in_shapefile(lon_h60, lat_h60, shapefile_path)
+            filtered_lon = lon_h60[IN]
+            filtered_lat = lat_h60[IN]
+            filtered_P_h60 = P_h60[IN]
+            return filtered_lon, filtered_lat, filtered_P_h60
+        except Exception as e:
+            print(f'Error filtering data by shapefile: {str(e)}')
+
+
+
+    @staticmethod
+    def cut_netcdf_by_shapefile(shapefile_path, netcdf_path):
+        """
+        Cut the extent of a NetCDF file to the region specified by the boundary of the given shapefile 
+        and export the result as a CSV file.
+
+        Parameters:
+            shapefile_path (str): Path to the shapefile defining the region of interest.
+            netcdf_path (str): Path to the NetCDF file to be cut.
+
+        Returns:
+            bool: True if the operation succeeds, False otherwise.
+        """
+        # Input validation
         if not shapefile_path.lower().endswith('.shp'):
-            print(shapefile_path + 'not a shapefile')
-            return
+            raise ValueError(shapefile_path + ' is not a shapefile.')
         if not netcdf_path.lower().endswith('.nc'):
-            print(netcdf_path + 'not a netCDF4 file')
-            return
-        
-        ds = xr.open_dataset(netcdf_path, decode_times=True)
-        edgar = ds.to_dataframe()
-        
-        shp = gpd.read_file(shapefile_path)
-        
-        # use geopandas points_from_xy() to transform Longitude and Latitude into a list of shapely.Point objects and set it as a geometry while creating the GeoDataFrame
-        edgar_gdf = gpd.GeoDataFrame(edgar, geometry=gpd.points_from_xy(edgar.lon, edgar.lat))
-        edgar_gdf.crs = shp.crs
-        
-        mask = gpd.clip(edgar_gdf, shp)
-        mask.to_csv(netcdf_path.split('.')[0] + '.csv')
-        return
+            raise ValueError(netcdf_path + ' is not a NetCDF4 file.')
 
+        try:
+            # Open NetCDF dataset and convert to DataFrame
+            ds = xr.open_dataset(netcdf_path, decode_times=True)
+            df = ds.to_dataframe()
+
+            # Read shapefile
+            shp = gpd.read_file(shapefile_path)
+
+            # Convert DataFrame to GeoDataFrame
+            gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.lon, df.lat))
+            gdf.crs = shp.crs
+
+            # Clip GeoDataFrame by shapefile boundary
+            clipped_gdf = gpd.clip(gdf, shp)
+
+            # Export clipped GeoDataFrame to CSV
+            output_filename = os.path.splitext(netcdf_path)[0] + '_clipped.csv'
+            clipped_gdf.to_csv(output_filename)
+
+            return True
+        except Exception as e:
+            print(f'An error occurred: {str(e)}')
+            return False
+
+    @staticmethod
     def download_h64(UserName, PassWord, datestart, dateend, storedir, product_category):
-        datelist = pd.date_range(f'{datestart}', f'{dateend}', freq='d')
-        prod_type = ''
-        prod_ext = ''
-        spt = ''
-        
-        with FTP('ftphsaf.meteoam.it', user=f'{UserName}', passwd=f'{PassWord}') as ftp:
-            if product_category == 'h64':
-                prod_type = product_category
-            else:
-                print('Use product category h64')
-                return
-            
-            spt = prod_type + '/' + prod_type + '_cur_mon_data/'
-                   
-            ftp.cwd(spt)
-            
-            print('Preparing data download ...')
-            
-            for ii in range(0, len(datelist)):
-                filename = prod_type+ '_' + f'{datelist[ii].year}{str(datelist[ii].month).zfill(2)}{str(datelist[ii].day).zfill(2)}' + prod_ext + '_0000_24_hea.nc.gz'
-                local_filename = os.path.join(f'{storedir}', filename)                
-                with open(local_filename, 'wb') as loc_file:
-                    if filename in ftp.nlst():
-                        ftp.retrbinary('RETR ' + filename, loc_file.write)
-                        print(filename + ' downloaded')
-                    else:
-                        print('there is no data for ' + '%s/%s/%s' % (datelist[ii].day, datelist[ii].month, datelist[ii].year))
-            print('Done!!!')
+        """
+        Download H64 data from the FTP server.
 
-    def download_h60(UserName, PassWord, datestart, dateend, storedir, product_category):        
-        datelist = pd.date_range(f'{datestart}', f'{dateend}', freq='d')
-        prod_type = ''
-        
-        with FTP('ftphsaf.meteoam.it', user=f'{UserName}', passwd=f'{PassWord}') as ftp:
-            if product_category == 'h60':
-                prod_type = product_category
-            else:
-                print('Use product category h60')
-                return
-                   
-            spt = prod_type + '/' + prod_type + '_cur_mon_data/'
-            ftp.cwd(spt)
-            
-            print('Preparing data download ...')
-            
-            for ii in range(0, len(datelist)):
-                if len(ftp.nlst()) ==0:
-                    print('there is no data for ' + '%s/%s/%s' % (datelist[ii].day, datelist[ii].month, datelist[ii].year))
-                else:
-                    for file in ftp.nlst():
-                        filename = prod_type+ '_' + f'{datelist[ii].year}{str(datelist[ii].month).zfill(2)}{str(datelist[ii].day).zfill(2)}'
+        Parameters:
+            UserName (str): FTP username.
+            PassWord (str): FTP password.
+            datestart (str): Start date in YYYY-MM-DD format.
+            dateend (str): End date in YYYY-MM-DD format.
+            storedir (str): Directory to store downloaded files.
+            product_category (str, optional): Product category. Defaults to 'h64'.
+        """
+
+        # Validate product category
+        if product_category != 'h64':
+            print('Error: Invalid product category. Use product category h64.')
+            return
+
+        # Validate date range
+        try:
+            pd.to_datetime(datestart)
+            pd.to_datetime(dateend)
+        except ValueError:
+            print('Error: Invalid date format. Use YYYY-MM-DD.')
+            return
+
+        if datestart > dateend:
+            print('Error: Invalid date range. Ensure datestart is less than or equal to dateend.')
+            return
+
+        # Validate directory path
+        if not os.path.isdir(storedir):
+            print('Error: Invalid directory path. Ensure storedir is a valid directory.')
+            return
+
+        # Establish FTP connection
+        try:
+            with FTP('ftphsaf.meteoam.it') as ftp:
+                ftp.login(user=UserName, passwd=PassWord)
+
+                # Change directory to product category
+                spt = f'{product_category}/{product_category}_cur_mon_data/'
+                ftp.cwd(spt)
+
+                print('Info: Preparing data download...')
+
+                # Generate list of dates
+                datelist = pd.date_range(datestart, dateend, freq='d')
+
+                # Download files for each date
+                for date in datelist:
+                    filename = f'{product_category}_{date.strftime("%Y%m%d")}_0000_24_hea.nc.gz'
+
+                    # Check if filename is a substring of any file on the server
+                    files = ftp.nlst()
+                    if any(filename in file for file in files):
+                        local_filename = os.path.join(storedir, filename)
+                        with open(local_filename, 'wb') as loc_file:
+                            ftp.retrbinary(f'RETR {filename}', loc_file.write)
+                        print(f'Info: {filename} downloaded')
+                    else:
+                        print(f'Warning: No data available for {date.strftime("%d/%m/%Y")}')
+
+                print('Infor: Download completed successfully')
+
+        except Exception as e:
+            print(f'Error: An error occurred: {str(e)}')
+
+    @staticmethod
+    def download_h60(UserName, PassWord, datestart, dateend, storedir, product_category):
+        """
+        Download H60 data from the FTP server.
+
+        Parameters:
+            UserName (str): FTP username.
+            PassWord (str): FTP password.
+            datestart (str): Start date in YYYY-MM-DD format.
+            dateend (str): End date in YYYY-MM-DD format.
+            storedir (str): Directory to store downloaded files.
+            product_category (str, optional): Product category. Defaults to 'h60'.
+        """
+    
+        # Validate product category
+        if product_category != 'h60':
+            print('Error: Invalid product category. Use product category h60.')
+            return
+
+        # Validate date format
+        try:
+            pd.to_datetime(datestart)
+            pd.to_datetime(dateend)
+        except ValueError:
+            print('Error: Invalid date format. Use YYYY-MM-DD.')
+            return
+
+        # Validate date range
+        if datestart > dateend:
+            print('Error: Invalid date range. Ensure datestart is less than or equal to dateend.')
+            return
+
+        # Validate directory path
+        if not os.path.isdir(storedir):
+            print('Error: Invalid directory path. Ensure storedir is a valid directory.')
+            return
+
+        # Generate list of dates
+        datelist = pd.date_range(datestart, dateend, freq='d')
+
+        # Establish FTP connection
+        try:
+            with FTP('ftphsaf.meteoam.it') as ftp:
+                ftp.login(user=UserName, passwd=PassWord)
+
+                # Change directory to product category
+                spt = f'{product_category}/{product_category}_cur_mon_data/'
+                ftp.cwd(spt)
+
+                print('Preparing data download...')
+
+                # Download files for each date
+                files = ftp.nlst()
+
+                for date in datelist:
+                    filename = f'{product_category}_{date.strftime("%Y%m%d")}'
+                    for file in files:
                         if filename in file:
-                            local_filename = os.path.join(f'{storedir}', file)
+                            local_filename = os.path.join(storedir, file)
                             with open(local_filename, 'wb') as loc_file:
-                                ftp.retrbinary('RETR ' + file, loc_file.write)
-                                print(file + ' downloaded')
-            
-            print('Done!!!')
-        
-    def download_h26(UserName, PassWord, datestart, dateend, storedir, product_category):
-        
-        datelist = pd.date_range(f'{datestart}', f'{dateend}', freq='d')
-        prod_type = ''
-        
-        with FTP('ftphsaf.meteoam.it', user=f'{UserName}', passwd=f'{PassWord}') as ftp:
-            if product_category == 'h26':
-                prod_type = product_category
-            else:
-                print('Use product category h26')
-                return
-            spt = prod_type + '/' + prod_type + '_cur_mon_nc/'
-                       
-            ftp.cwd(spt)
-            
-            print('Preparing data download ...')
-            
-            for ii in range(0, len(datelist)):
-                filename = prod_type+ '_' + f'{datelist[ii].year}{str(datelist[ii].month).zfill(2)}{str(datelist[ii].day).zfill(2)}' + '00_R01.nc'
-                local_filename = os.path.join(f'{storedir}', filename)                
-                with open(local_filename, 'wb') as loc_file:
-                    if filename in ftp.nlst():
-                        ftp.retrbinary('RETR ' + filename, loc_file.write)
-                        print(filename + ' downloaded')
+                                ftp.retrbinary(f'RETR {file}', loc_file.write)
+                            print(f'Info: {file} downloaded')
                     else:
-                        print('there is no data for ' + '%s/%s/%s' % (datelist[ii].day, datelist[ii].month, datelist[ii].year))
-            print('Done!!!')
+                        print(f'Warning: No data available for {date.strftime("%d/%m/%Y")}')
+
+
+                print('Info: Download completed successfully')
+
+        except Exception as e:
+            print(f'An error occurred: {str(e)}')
 
             
-            
-    def get_lat_lon(self, username, psw):
-        ftp = FTP('ftphsaf.meteoam.it', user=username, passwd=psw)
-        ftp.cwd('utilities/matlab_code')
-        filename = 'lat_lon_0.nc.gz'
-        local_filename = 'latlon.nc.gz'                
-        with open(local_filename, 'wb') as loc_file:
-            if filename in ftp.nlst():
-                ftp.retrbinary('RETR ' + filename, loc_file.write)
-                print(filename + ' downloaded')
-            else:
-                print('there is no positional data available')
-        self.extract_gz_file('./')
-        print('Done!!!')        
-        return
+    @staticmethod
+    def download_h26(UserName, PassWord, datestart, dateend, storedir, product_category):
+        """
+        Download H26 data from the FTP server.
+
+        Parameters:
+            UserName (str): FTP username.
+            PassWord (str): FTP password.
+            datestart (str): Start date in YYYY-MM-DD format.
+            dateend (str): End date in YYYY-MM-DD format.
+            storedir (str): Directory to store downloaded files.
+            product_category (str, optional): Product category. Defaults to 'h26'.
+        """
+        # Validate product category
+        if product_category != 'h26':
+            print('Error: Invalid product category. Use product category h26.')
+            return
+
+        # Validate date format
+        try:
+            pd.to_datetime(datestart)
+            pd.to_datetime(dateend)
+        except ValueError:
+            print('Error: Invalid date format. Use YYYY-MM-DD.')
+            return
+
+        # Validate date range
+        if datestart > dateend:
+            print('Error: Invalid date range. Ensure datestart is less than or equal to dateend.')
+            return
+
+        # Validate directory path
+        if not os.path.isdir(storedir):
+            print('Error: Invalid directory path. Ensure storedir is a valid directory.')
+            return
+
+        try:
+            # Establish FTP connection
+            with FTP('ftphsaf.meteoam.it') as ftp:
+                ftp.login(user=UserName, passwd=PassWord)
+
+                # Change directory to product category
+                spt = f'{product_category}/{product_category}_cur_mon_nc/'
+                ftp.cwd(spt)
+
+                print('Info: Preparing data download...')
+
+                # Generate list of dates
+                datelist = pd.date_range(datestart, dateend, freq='d')
+
+                # Download files for each date
+                files = ftp.nlst()
+
+                for date in datelist:
+                    filename = f'{product_category}_{date.strftime("%Y%m%d")}00_R01.nc'
+                    file_found = False
+                    for file in files:
+                        if filename in file:
+                            file_found = True
+                            local_filename = os.path.join(storedir, file)
+                            with open(local_filename, 'wb') as loc_file:
+                                ftp.retrbinary(f'RETR {file}', loc_file.write)
+                            print(f'Info: {file} downloaded')
+                            break  # Exit the inner loop once the file is found
+                    if not file_found:
+                        print(f'Warning: No data available for {date.strftime("%d/%m/%Y")}')
+
+                print('Info: Download completed successfully')
+
+        except Exception as e:
+            print(f'Error: An error occurred: {str(e)}')
+
+        
+    @staticmethod            
+    def get_lat_lon(username, psw, filename='lat_lon_0.nc.gz', local_filename='latlon.nc.gz'):
+        """
+        Download latitude and longitude data from the FTP server.
+
+        Parameters:
+            username (str): FTP username.
+            psw (str): FTP password.
+            filename (str, optional): Name of the file to download. Defaults to 'lat_lon_0.nc.gz'.
+            local_filename (str, optional): Name to save the downloaded file locally. Defaults to 'latlon.nc.gz'.
+
+        Returns:
+            str: The path to the downloaded file.
+        """
+        try:
+            # Connect to FTP server
+            with FTP('ftphsaf.meteoam.it') as ftp:
+                ftp.login(user=username, passwd=psw)
+                ftp.cwd('utilities/matlab_code')
+
+                # Download file
+                with open(local_filename, 'wb') as loc_file:
+                    if filename in ftp.nlst():
+                        ftp.retrbinary(f'RETR {filename}', loc_file.write)
+                        print(f'Info: {filename} downloaded')
+                    else:
+                        print('Warning: No positional data available')
+                        return None
+
+            # Extract gz file
+#             extract_gz_file(local_filename)
+
+            print('Info: Download completed successfully')
+            return local_filename
+
+        except Exception as e:
+            print(f'Error: An error occurred: {str(e)}')
+            return None
+    
+    @staticmethod
+    def create_folders():
+        """
+        Creates necessary folders if they don't exist.
+    
+        The method checks if the 'output' and 'data' folders exist. If they do not exist,
+        it creates them. If they exist, it deletes all files inside the 'data' folder.
+    
+        Parameters:
+            None
+    
+        Returns:
+            None
+        """
+        if not os.path.exists('output'):
+            os.makedirs('output')
+        if not os.path.exists('data'):
+            os.makedirs('data')
+        else:
+            for f in os.listdir('data'):
+                os.remove(os.path.join('data', f))
+
+
+    @staticmethod
+    def extract_and_clean_data(store_dir):
+        """
+        Extracts all gzipped files in the specified directory and removes any empty files after extraction.
+    
+        Parameters:
+            store_dir (str): The directory containing the gzipped files to be extracted and cleaned.
+    
+        Returns:
+            None
+        """
+        try:
+            HSAFDataAccess.extract_gz_files(store_dir)
+    
+            # Remove empty files after extraction
+            for file_name in os.listdir(store_dir):
+                file_path = os.path.join(store_dir, file_name)
+                if os.stat(file_path).st_size == 0:
+                    os.remove(file_path)
+        except Exception as e:
+            print(f'Error extracting and cleaning data: {str(e)}')
+
 
