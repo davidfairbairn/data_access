@@ -35,28 +35,50 @@ class HSAFDataAccess:
         """
         if not os.path.isdir(directory):
             raise ValueError("Specified path is not a directory")
+            
+            
+        # Get list of files in the directory
+        file_list = os.listdir(directory)
+        file_list.sort()
+
+        # Check if any files are available
+        if not file_list:
+            print("No data files found in the specified directory.")
+            return
+        
+        
 
         try:
             extracted = False
-            extension = ".gz"
+             
+            # Check if files are of expected type (gz)
+            gz_files = [file for file in file_list if file.endswith('.gz')]
+            if not gz_files:
+                print("No .gz files found in the specified directory.")
+                return
+            # Extract and clean the data
+            for file in gz_files:
+                gz_name = os.path.join(directory, file)
+                file_name = os.path.splitext(gz_name)[0]
+                try:
+                    with gzip.open(gz_name, 'rb') as f_in:
+                        with open(file_name, "wb") as f_out:
+                            shutil.copyfileobj(f_in, f_out)
+                    os.remove(gz_name)
+                    extracted = True
 
-            for item in os.listdir(directory):
-                if item.endswith(extension):
-                    gz_name = os.path.join(directory, item)
-                    file_name = os.path.splitext(gz_name)[0]
-                    try:
-                        with gzip.open(gz_name, "rb") as f_in:
-                            with open(file_name, "wb") as f_out:
-                                shutil.copyfileobj(f_in, f_out)
-                        os.remove(gz_name)
-                        extracted = True
-                    except (gzip.BadGzipFile, IOError, OSError) as e:
-                        print(f"Error extracting {gz_name}: {e}")
+                except Exception as e:
+                    print(f"Error extracting data from {file}: {e}")
+                    continue
+
         except Exception as e:
             raise RuntimeError(f"Error while extracting gzipped files: {e}")
 
         return extracted
     
+
+
+
 
     @staticmethod
     def add_border(ax):
@@ -69,14 +91,14 @@ class HSAFDataAccess:
         Returns:
             matplotlib.axes.Axes: The modified axes object.
         """
-        
+
         # Define boundary types and their corresponding face colors
-        boundaries = {'ocean': 'water', 'land': 'land'}
+        boundaries = {'ocean': (173/255, 216/255, 230/255), 'land': 'none'}  # Light blue color for ocean
 
         try:
             for boundary_type, face_color in boundaries.items():
                 feature = cfeature.NaturalEarthFeature(category='physical', name=boundary_type, scale='10m',
-                                                        edgecolor='none', facecolor=cfeature.COLORS[face_color], zorder=-1)
+                                                        edgecolor='none', facecolor=face_color)
                 ax.add_feature(feature)
 
             # Add coastlines
@@ -87,6 +109,9 @@ class HSAFDataAccess:
         except Exception as e:
             print(f"An error occurred while adding boundaries: {e}")
             return None
+
+
+
 
     
     @staticmethod
@@ -135,10 +160,10 @@ class HSAFDataAccess:
             main_param[:] = rr
 
             ncfile.close()
-            return True
+            return "netCDF created successfully"
         except Exception as e:
             print(f'An error occurred: {str(e)}')
-            return False
+            return 'could not create netCDF from data'
 
 
     @staticmethod
@@ -563,10 +588,13 @@ class HSAFDataAccess:
                         return None
 
             # Extract gz file
-#             extract_gz_file(local_filename)
-
+            with gzip.open(local_filename, 'rb') as f_in:
+                with open('lat_lon.nc', 'wb') as f_out:
+                    f_out.write(f_in.read())
+                
+    
             print('Info: Download completed successfully')
-            return local_filename
+            return os.path.join('./', 'lat_lon.nc')
 
         except Exception as e:
             print(f'Error: An error occurred: {str(e)}')
@@ -606,6 +634,7 @@ class HSAFDataAccess:
         Returns:
             None
         """
+        
         try:
             HSAFDataAccess.extract_gz_files(store_dir)
     
@@ -617,4 +646,104 @@ class HSAFDataAccess:
         except Exception as e:
             print(f'Error extracting and cleaning data: {str(e)}')
 
+# def get_selected_area():
+#     """
+#     Get the selected area based on the radio button option.
 
+#     Returns:
+#         dict or None: A dictionary containing the selected area's information. 
+#         If the bounding box option is selected, it returns the coordinates of the bounding box. 
+#         If the shapefile option is selected and a shapefile is uploaded, it returns the content of the shapefile. 
+#         If neither option is selected or no shapefile is uploaded, it returns None.
+#     """
+#     if radio_button.value == 'Bounding Box':
+#         lower_left_x = bounding_box_widgets.children[1].value
+#         lower_left_y = bounding_box_widgets.children[2].value
+#         upper_right_x = bounding_box_widgets.children[3].value
+#         upper_right_y = bounding_box_widgets.children[4].value
+#         return {
+#             'area_type': 'Bounding Box',
+#             'lower_left_x': lower_left_x,
+#             'lower_left_y': lower_left_y,
+#             'upper_right_x': upper_right_x,
+#             'upper_right_y': upper_right_y
+#         }
+#     elif radio_button.value == 'Shapefile':
+#         if shapefile_widget.value:
+#             file_info = list(shapefile_widget.value.values())[0]
+#             shapefile_content = file_info['content']
+#             return {
+#                 'area_type': 'Shapefile',
+#                 'shapefile_content': shapefile_content
+#             }
+#         else:
+#             return None
+
+# # Example usage
+# selected_area = get_selected_area()
+# print(selected_area)
+
+
+
+
+# # Accessing bounding box widget values
+# lower_left_x = bounding_box_widgets.children[1].value
+# lower_left_y = bounding_box_widgets.children[2].value
+# upper_right_x = bounding_box_widgets.children[3].value
+# upper_right_y = bounding_box_widgets.children[4].value  
+    
+# # Accessing shapefile widget value
+# uploaded_files = aoi_shp.value
+# if uploaded_files:
+#     # Iterate over the uploaded files
+#     for file_info in uploaded_files:
+#         # Get the content of the uploaded file
+#         shapefile_content = file_info['content']
+#         print(shapefile_content)
+#         # Process the shapefile content as needed
+        
+        
+# # Function to create bounding box widgets
+# def create_bounding_box_widgets():
+#     return widgets.VBox([
+#         widgets.Label('Bounding Box Coordinates:'),
+#         widgets.FloatText(value=0.0, description='Lower Left X:'),
+#         widgets.FloatText(value=0.0, description='Lower Left Y:'),
+#         widgets.FloatText(value=0.0, description='Upper Right X:'),
+#         widgets.FloatText(value=0.0, description='Upper Right Y:')
+#     ])
+
+# # Area of study selection
+# area_of_study = widgets.RadioButtons(
+#     options=['Bounding Box', 'Shapefile'],
+#     description='Area of Study:',
+#     disabled=False
+# )
+
+# # Bounding box widgets (initially hidden)
+# bounding_box_widgets = create_bounding_box_widgets()
+# bounding_box_widgets.layout.visibility = 'hidden'
+
+# # Shapefile upload widget (initially hidden)
+# aoi_shp = widgets.FileUpload(description='Upload Shapefile')
+# aoi_shp.layout.visibility = 'hidden'
+
+# # Container for bounding box and shapefile widgets
+# area_widgets_container = widgets.VBox([
+#     bounding_box_widgets,
+#     aoi_shp
+# ])
+
+# # Function to handle area of study selection
+# def handle_area_of_study_selection(change):
+#     if change.new == 'Bounding Box':
+#         bounding_box_widgets.layout.visibility = 'visible'
+#         aoi_shp.layout.visibility = 'hidden'
+#     elif change.new == 'Shapefile':
+#         bounding_box_widgets.layout.visibility = 'hidden'
+#         aoi_shp.layout.visibility = 'visible'
+
+# area_of_study.observe(handle_area_of_study_selection, names='value')
+
+# # Display widgets
+# display(widgets.HBox([area_of_study, area_widgets_container]))
