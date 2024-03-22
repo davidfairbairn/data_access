@@ -4,11 +4,11 @@ with open('README.md', 'r') as f:
     long_description = f.read()
 
 setup(
-    name='hsaf_toolkit',
+    name='hsaf_data_access',
     version='0.1',
     author='Felix Enyimah Toffah',
     author_email='gmfetoffah@gmail.com',
-    description='Toolkit for accessing H64 data products and analyzing them using Jupyter notebooks',
+    description='Toolkit for accessing H-SAF data products and analyzing them using Jupyter notebooks',
     long_description=long_description,
     long_description_content_type='text/markdown',
     url='https://github.com/H-SAF/data_access',
