@@ -14,6 +14,8 @@ from ftplib import FTP
 from matplotlib.path import Path
 import cartopy.feature as cfeature
 
+import ipywidgets as widgets
+
 
 class HSAFDataAccess:
     """ A class containing methods for accessing data from the H-SAF ftp server """
@@ -77,9 +79,6 @@ class HSAFDataAccess:
         return extracted
     
 
-
-
-
     @staticmethod
     def add_border(ax):
         """
@@ -111,9 +110,6 @@ class HSAFDataAccess:
             return None
 
 
-
-
-    
     @staticmethod
     def create_netCDF_from_data(param_name, param_unit, outname, rr, lat1, lon1, datestart, dateend):
         """
@@ -219,19 +215,34 @@ class HSAFDataAccess:
         - list: List containing boolean values indicating whether each point is inside the shapefile boundary.
         """
 
+
         try:
+            # Read shapefile
             shapefile = gpd.read_file(shapefile_path)
-            points = gpd.GeoDataFrame(geometry=gpd.points_from_xy(lon, lat))
-            points_in_shapefile = gpd.sjoin(points, shapefile, how="inner", op="within")
+    
+            # Check and reproject if necessary
+            if shapefile.crs != {'epsg:4326'}:  # Check if CRS is EPSG:4326
+                shapefile = shapefile.to_crs(epsg=4326)  # Reproject to EPSG:4326
+    
+            # Create GeoDataFrame from points
+            points = gpd.GeoDataFrame(geometry=gpd.points_from_xy(lon, lat), crs={'epsg:4326'})
+    
+            # Check CRS and reproject if necessary
+            if points.crs != shapefile.crs:
+                points = points.to_crs(shapefile.crs)
+    
+            # Perform spatial join
+            points_in_shapefile = gpd.sjoin(points, shapefile, how="inner", predicate="within")
             points_indices_inside_shapefile = points_in_shapefile.index.tolist()
-            
+    
             # Construct a boolean mask indicating whether each point is inside the shapefile
             points_in_shapefile_mask = [True if i in points_indices_inside_shapefile else False for i in range(len(lon))]
-            
+    
             return points_in_shapefile_mask
-        
+    
         except Exception as e:
             print(f'Error checking points in shapefile: {str(e)}')
+
 
 
     @staticmethod
@@ -300,7 +311,6 @@ class HSAFDataAccess:
             print(f'Error filtering data by shapefile: {str(e)}')
 
 
-
     @staticmethod
     def cut_netcdf_by_shapefile(shapefile_path, netcdf_path):
         """
@@ -343,6 +353,7 @@ class HSAFDataAccess:
         except Exception as e:
             print(f'An error occurred: {str(e)}')
             return False
+
 
     @staticmethod
     def download_h64(UserName, PassWord, datestart, dateend, storedir, product_category):
@@ -408,10 +419,11 @@ class HSAFDataAccess:
                     else:
                         print(f'Warning: No data available for {date.strftime("%d/%m/%Y")}')
 
-                print('Infor: Download completed successfully')
+                print('Info: Download completed successfully')
 
         except Exception as e:
             print(f'Error: An error occurred: {str(e)}')
+
 
     @staticmethod
     def download_h60(UserName, PassWord, datestart, dateend, storedir, product_category):
@@ -645,105 +657,23 @@ class HSAFDataAccess:
                     os.remove(file_path)
         except Exception as e:
             print(f'Error extracting and cleaning data: {str(e)}')
-
-# def get_selected_area():
-#     """
-#     Get the selected area based on the radio button option.
-
-#     Returns:
-#         dict or None: A dictionary containing the selected area's information. 
-#         If the bounding box option is selected, it returns the coordinates of the bounding box. 
-#         If the shapefile option is selected and a shapefile is uploaded, it returns the content of the shapefile. 
-#         If neither option is selected or no shapefile is uploaded, it returns None.
-#     """
-#     if radio_button.value == 'Bounding Box':
-#         lower_left_x = bounding_box_widgets.children[1].value
-#         lower_left_y = bounding_box_widgets.children[2].value
-#         upper_right_x = bounding_box_widgets.children[3].value
-#         upper_right_y = bounding_box_widgets.children[4].value
-#         return {
-#             'area_type': 'Bounding Box',
-#             'lower_left_x': lower_left_x,
-#             'lower_left_y': lower_left_y,
-#             'upper_right_x': upper_right_x,
-#             'upper_right_y': upper_right_y
-#         }
-#     elif radio_button.value == 'Shapefile':
-#         if shapefile_widget.value:
-#             file_info = list(shapefile_widget.value.values())[0]
-#             shapefile_content = file_info['content']
-#             return {
-#                 'area_type': 'Shapefile',
-#                 'shapefile_content': shapefile_content
-#             }
-#         else:
-#             return None
-
-# # Example usage
-# selected_area = get_selected_area()
-# print(selected_area)
-
-
-
-
-# # Accessing bounding box widget values
-# lower_left_x = bounding_box_widgets.children[1].value
-# lower_left_y = bounding_box_widgets.children[2].value
-# upper_right_x = bounding_box_widgets.children[3].value
-# upper_right_y = bounding_box_widgets.children[4].value  
     
-# # Accessing shapefile widget value
-# uploaded_files = aoi_shp.value
-# if uploaded_files:
-#     # Iterate over the uploaded files
-#     for file_info in uploaded_files:
-#         # Get the content of the uploaded file
-#         shapefile_content = file_info['content']
-#         print(shapefile_content)
-#         # Process the shapefile content as needed
-        
-        
-# # Function to create bounding box widgets
-# def create_bounding_box_widgets():
-#     return widgets.VBox([
-#         widgets.Label('Bounding Box Coordinates:'),
-#         widgets.FloatText(value=0.0, description='Lower Left X:'),
-#         widgets.FloatText(value=0.0, description='Lower Left Y:'),
-#         widgets.FloatText(value=0.0, description='Upper Right X:'),
-#         widgets.FloatText(value=0.0, description='Upper Right Y:')
-#     ])
+    
+    # Function to create bounding box widgets
+    def create_box_widgets():
+        return widgets.VBox([
+            widgets.Label('Bounding Box Coordinates:'),
+            widgets.FloatText(value=0.0, description='X1:'),
+            widgets.FloatText(value=0.0, description='X2:'),
+            widgets.FloatText(value=0.0, description='Y1:'),
+            widgets.FloatText(value=0.0, description='Y2:')
+        ])
+    
 
-# # Area of study selection
-# area_of_study = widgets.RadioButtons(
-#     options=['Bounding Box', 'Shapefile'],
-#     description='Area of Study:',
-#     disabled=False
-# )
 
-# # Bounding box widgets (initially hidden)
-# bounding_box_widgets = create_bounding_box_widgets()
-# bounding_box_widgets.layout.visibility = 'hidden'
+    
+    def create_shp_widgets():
+        return widgets.VBox([
+            widgets.Text(value='./', description= 'shp url')            
+        ])
 
-# # Shapefile upload widget (initially hidden)
-# aoi_shp = widgets.FileUpload(description='Upload Shapefile')
-# aoi_shp.layout.visibility = 'hidden'
-
-# # Container for bounding box and shapefile widgets
-# area_widgets_container = widgets.VBox([
-#     bounding_box_widgets,
-#     aoi_shp
-# ])
-
-# # Function to handle area of study selection
-# def handle_area_of_study_selection(change):
-#     if change.new == 'Bounding Box':
-#         bounding_box_widgets.layout.visibility = 'visible'
-#         aoi_shp.layout.visibility = 'hidden'
-#     elif change.new == 'Shapefile':
-#         bounding_box_widgets.layout.visibility = 'hidden'
-#         aoi_shp.layout.visibility = 'visible'
-
-# area_of_study.observe(handle_area_of_study_selection, names='value')
-
-# # Display widgets
-# display(widgets.HBox([area_of_study, area_widgets_container]))
