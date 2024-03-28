@@ -4,13 +4,13 @@
 import os
 import gzip
 import shutil
+from ftplib import FTP
 
 import numpy as np
 import netCDF4 as nc
 import geopandas as gpd
 import xarray as xr
 import pandas as pd
-from ftplib import FTP
 from matplotlib.path import Path
 import cartopy.feature as cfeature
 

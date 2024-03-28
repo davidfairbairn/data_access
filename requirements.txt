@@ -1,0 +1,12 @@
+# Required Python libraries to run the template tools
+#
+# Name                    Version                   
+numpy                     1.24.4           
+matplotlib                3.7.2           
+cartopy                   0.21.1           
+ipywidgets                8.1.1            
+netcdf4                   1.6.4          
+geopandas                 0.13.2                  
+xarray                    2022.3.0                
+pandas                    1.4.1                    
+

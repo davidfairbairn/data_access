@@ -1,6 +1,6 @@
-# H-SAF Data Access
+# H SAF Data Access
 
-This toolkit provides a collection of utilities for accessing and analyzing data products from the Hydrology SAF (H-SAF), with a focus on datasets related to snow, precipitation, and soil moisture clusters. It includes functions for data retrieval, processing, visualization, and analysis, making it easier to work with H-SAF data in Python environments.
+This toolkit provides a collection of utilities for accessing and analyzing data products from the Hydrology SAF (H SAF), with a focus on datasets related to snow, precipitation, and soil moisture clusters. It includes functions for data retrieval, processing, visualization, and analysis, making it easier to work with H SAF data in Python environments.
 
 
 ## Usage
@@ -27,7 +27,7 @@ Save processed data into NetCDF4 and CSV file formats using the provided functio
 
 ## Prerequisites
 
-Before using the HSAF data access library and the template tools, ensure that you have the following prerequisites installed:
+Before using the H SAF data access library and the template tools, ensure that you have the following prerequisites installed:
 
 - Python 3.x
 - Jupyter Notebook
@@ -35,7 +35,7 @@ Before using the HSAF data access library and the template tools, ensure that yo
 
 ## Data Sources
 
-You can access the data products through the H-SAF server by obtaining valid credentials from the [H-SAF website](https://hsaf.meteoam.it/).
+You can access the data products through the H-SAF server by obtaining valid credentials from the [H SAF website](https://hsaf.meteoam.it/).
 
 ## Documentation
 
@@ -47,4 +47,4 @@ This project is licensed under the MIT License. See the `LICENSE` file for detai
 
 ## Acknowledgements
 
-The HSAF Toolkit is developed as part of the Hydrology SAF (H-SAF) initiative.
+The H SAF Toolkit is developed as part of the Hydrology SAF (H SAF) initiative.
